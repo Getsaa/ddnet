@@ -7,14 +7,14 @@ endif()
 
 file(STRINGS src/game/version.h VERSION_LINE
   LIMIT_COUNT 1
-  REGEX "^#define GAME_RELEASE_VERSION "
+  REGEX "^#define GAME_RELEASE_VERSION_INTERNAL "
 )
 
-if(VERSION_LINE MATCHES "\"([0-9]+)\\.([0-9]+)\\.([0-9]+)\"")
+if(VERSION_LINE MATCHES "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
   set(VERSION_MAJOR ${CMAKE_MATCH_1})
   set(VERSION_MINOR ${CMAKE_MATCH_2})
   set(VERSION_PATCH ${CMAKE_MATCH_3})
-elseif(VERSION_LINE MATCHES "\"([0-9]+)\\.([0-9]+)\"")
+elseif(VERSION_LINE MATCHES "([0-9]+)\\.([0-9]+)")
   set(VERSION_MAJOR ${CMAKE_MATCH_1})
   set(VERSION_MINOR ${CMAKE_MATCH_2})
   set(VERSION_PATCH "0")
@@ -2008,7 +2008,7 @@ set_src(BASE GLOB_RECURSE src/base
   unicode/confusables.h
   unicode/confusables_data.h
   unicode/tolower.cpp
-  unicode/tolower.h
+  unicode/tolower_data.cpp
   unicode/tolower_data.h
   vmath.h
 )
@@ -2382,6 +2382,8 @@ if(CLIENT)
     components/players.h
     components/race_demo.cpp
     components/race_demo.h
+    components/render_layer.cpp
+    components/render_layer.h
     components/scoreboard.cpp
     components/scoreboard.h
     components/skins.cpp
@@ -2749,6 +2751,7 @@ if(SERVER)
     gamemodes/mod.h
     gameworld.cpp
     gameworld.h
+    mutes.cpp
     player.cpp
     player.h
     save.cpp
@@ -3625,7 +3628,7 @@ foreach(target ${TARGETS_OWN})
     target_compile_definitions(${target} PRIVATE CONF_INFORM_UPDATE)
   endif()
   if(STEAM)
-    target_compile_definitions(${target} PRIVATE PLATFORM_SUFFIX="-steam")
+    target_compile_definitions(${target} PRIVATE PLATFORM_SUFFIX=-steam)
   endif()
   if(DISCORD)
     target_compile_definitions(${target} PRIVATE CONF_DISCORD)
@@ -3634,7 +3637,7 @@ foreach(target ${TARGETS_OWN})
     endif()
   endif()
   if(VERSION)
-    target_compile_definitions(${target} PRIVATE GAME_RELEASE_VERSION="${VERSION}")
+    target_compile_definitions(${target} PRIVATE GAME_RELEASE_VERSION_INTERNAL=${VERSION})
   endif()
   if(TARGET_OS STREQUAL "android")
     if(ANDROID_PACKAGE_NAME)

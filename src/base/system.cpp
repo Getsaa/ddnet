@@ -73,7 +73,7 @@
 #include <process.h>
 #include <share.h>
 #include <shellapi.h>
-#include <shlobj.h> // SHChangeNotify
+#include <shlobj.h> // SHChangeNotify, SHGetKnownFolderPath
 #include <shlwapi.h>
 #include <wincrypt.h>
 #else
@@ -851,7 +851,21 @@ void *thread_init(void (*threadfunc)(void *), void *u, const char *name)
 #elif defined(CONF_FAMILY_WINDOWS)
 	HANDLE thread = CreateThread(nullptr, 0, thread_run, data, 0, nullptr);
 	dbg_assert(thread != nullptr, "CreateThread failure");
-	// TODO: Set thread name using SetThreadDescription (would require minimum Windows 10 version 1607)
+	HMODULE kernel_base_handle;
+	if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, L"KernelBase.dll", &kernel_base_handle))
+	{
+		// Intentional
+#ifdef __MINGW32__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+		auto set_thread_description_function = reinterpret_cast<HRESULT(WINAPI *)(HANDLE, PCWSTR)>(GetProcAddress(kernel_base_handle, "SetThreadDescription"));
+#ifdef __MINGW32__
+#pragma GCC diagnostic pop
+#endif
+		if(set_thread_description_function)
+			set_thread_description_function(thread, windows_utf8_to_wide(name).c_str());
+	}
 	return thread;
 #else
 #error not implemented
@@ -1063,6 +1077,21 @@ int net_addr_comp(const NETADDR *a, const NETADDR *b)
 bool NETADDR::operator==(const NETADDR &other) const
 {
 	return net_addr_comp(this, &other) == 0;
+}
+
+bool NETADDR::operator!=(const NETADDR &other) const
+{
+	return net_addr_comp(this, &other) != 0;
+}
+
+bool NETADDR::operator<(const NETADDR &other) const
+{
+	return net_addr_comp(this, &other) < 0;
+}
+
+size_t std::hash<NETADDR>::operator()(const NETADDR &Addr) const noexcept
+{
+	return std::hash<std::string_view>{}(std::string_view((const char *)&Addr, sizeof(Addr)));
 }
 
 int net_addr_comp_noport(const NETADDR *a, const NETADDR *b)
@@ -1468,7 +1497,7 @@ static void priv_net_close_socket(int sock)
 #endif
 }
 
-static int priv_net_close_all_sockets(NETSOCKET sock)
+static void priv_net_close_all_sockets(NETSOCKET sock)
 {
 	/* close down ipv4 */
 	if(sock->ipv4sock >= 0)
@@ -1497,7 +1526,6 @@ static int priv_net_close_all_sockets(NETSOCKET sock)
 	}
 
 	free(sock);
-	return 0;
 }
 
 #if defined(CONF_FAMILY_WINDOWS)
@@ -1863,9 +1891,9 @@ int net_udp_recv(NETSOCKET sock, NETADDR *addr, unsigned char **data)
 	return -1; /* error */
 }
 
-int net_udp_close(NETSOCKET sock)
+void net_udp_close(NETSOCKET sock)
 {
-	return priv_net_close_all_sockets(sock);
+	priv_net_close_all_sockets(sock);
 }
 
 NETSOCKET net_tcp_create(NETADDR bindaddr)
@@ -2055,9 +2083,9 @@ int net_tcp_recv(NETSOCKET sock, void *data, int maxsize)
 	return bytes;
 }
 
-int net_tcp_close(NETSOCKET sock)
+void net_tcp_close(NETSOCKET sock)
 {
-	return priv_net_close_all_sockets(sock);
+	priv_net_close_all_sockets(sock);
 }
 
 int net_errno()
@@ -2262,16 +2290,19 @@ void fs_listdir_fileinfo(const char *dir, FS_LISTDIR_CALLBACK_FILEINFO cb, int t
 int fs_storage_path(const char *appname, char *path, int max)
 {
 #if defined(CONF_FAMILY_WINDOWS)
-	WCHAR *wide_home = _wgetenv(L"APPDATA");
-	if(!wide_home)
+	WCHAR *wide_home = nullptr;
+	if(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, /* current user */ nullptr, &wide_home) != S_OK)
 	{
+		log_error("filesystem", "ERROR: could not determine location of Roaming/AppData folder");
+		CoTaskMemFree(wide_home);
 		path[0] = '\0';
 		return -1;
 	}
 	const std::optional<std::string> home = windows_wide_to_utf8(wide_home);
+	CoTaskMemFree(wide_home);
 	if(!home.has_value())
 	{
-		log_error("filesystem", "ERROR: the APPDATA environment variable contains invalid UTF-16");
+		log_error("filesystem", "ERROR: path of Roaming/AppData folder contains invalid UTF-16");
 		path[0] = '\0';
 		return -1;
 	}
@@ -2659,8 +2690,11 @@ void swap_endian(void *data, unsigned elem_size, unsigned num)
 	}
 }
 
-int net_socket_read_wait(NETSOCKET sock, int time)
+int net_socket_read_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
 {
+	const int64_t microseconds = std::chrono::duration_cast<std::chrono::microseconds>(nanoseconds).count();
+	dbg_assert(microseconds >= 0, "Negative wait duration %" PRId64 " not allowed", microseconds);
+
 	fd_set readfds;
 	FD_ZERO(&readfds);
 
@@ -2686,18 +2720,11 @@ int net_socket_read_wait(NETSOCKET sock, int time)
 		return 0;
 	}
 
-	/* don't care about writefds and exceptfds */
-	if(time < 0)
-	{
-		select(maxfd + 1, &readfds, nullptr, nullptr, nullptr);
-	}
-	else
-	{
-		struct timeval tv;
-		tv.tv_sec = time / 1000000;
-		tv.tv_usec = time % 1000000;
-		select(maxfd + 1, &readfds, nullptr, nullptr, &tv);
-	}
+	struct timeval tv;
+	tv.tv_sec = microseconds / 1000000;
+	tv.tv_usec = microseconds % 1000000;
+	// don't care about writefds and exceptfds
+	select(maxfd + 1, &readfds, nullptr, nullptr, &tv);
 
 	if(sock->ipv4sock >= 0 && FD_ISSET(sock->ipv4sock, &readfds))
 		return 1;
@@ -4874,12 +4901,6 @@ std::chrono::nanoseconds time_get_nanoseconds()
 	return std::chrono::nanoseconds(time_get_impl());
 }
 
-int net_socket_read_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
-{
-	using namespace std::chrono_literals;
-	return ::net_socket_read_wait(sock, (nanoseconds / std::chrono::nanoseconds(1us).count()).count());
-}
-
 #if defined(CONF_FAMILY_WINDOWS)
 std::wstring windows_utf8_to_wide(const char *str)
 {
@@ -5278,8 +5299,3 @@ void shell_update()
 	SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
 #endif
-
-size_t std::hash<NETADDR>::operator()(const NETADDR &Addr) const noexcept
-{
-	return std::hash<std::string_view>{}(std::string_view((const char *)&Addr, sizeof(Addr)));
-}

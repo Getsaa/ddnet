@@ -124,7 +124,7 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 	};
 
 	static constexpr float SKIP_DURATIONS_SECONDS[] = {0.1f, 0.5f, 1.0f, 5.0f, 10.0f, 30.0f, 60.0f, 5.0f * 60.0f, 10.0f * 60.0f};
-	static constexpr const char *SKIP_DURATIONS_STRINGS[] = {"0.1", "0.5", "1", "5", "10", "30", "60", "5", "10"};
+	static constexpr const char *SKIP_DURATIONS_STRINGS[] = {"0.1", "0.5", "1", "5", "10", "30", "1", "5", "10"};
 	static_assert(SKIP_DURATIONS_SECONDS[DEFAULT_SKIP_DURATION_INDEX] == 5.0f);
 	static_assert(std::size(SKIP_DURATIONS_SECONDS) == std::size(SKIP_DURATIONS_STRINGS));
 
@@ -342,8 +342,8 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 			if(s_Operation == OP_DRAGGING)
 			{
 				m_DemoControlsPositionOffset = Ui()->MousePos() - s_InitialMouse;
-				m_DemoControlsPositionOffset.x = clamp(m_DemoControlsPositionOffset.x, -DemoControlsOriginal.x, MainView.w - DemoControlsDragRect.w - DemoControlsOriginal.x);
-				m_DemoControlsPositionOffset.y = clamp(m_DemoControlsPositionOffset.y, -DemoControlsOriginal.y, MainView.h - DemoControlsDragRect.h - DemoControlsOriginal.y);
+				m_DemoControlsPositionOffset.x = std::clamp(m_DemoControlsPositionOffset.x, -DemoControlsOriginal.x, MainView.w - DemoControlsDragRect.w - DemoControlsOriginal.x);
+				m_DemoControlsPositionOffset.y = std::clamp(m_DemoControlsPositionOffset.y, -DemoControlsOriginal.y, MainView.h - DemoControlsDragRect.h - DemoControlsOriginal.y);
 			}
 		}
 	}
@@ -431,7 +431,7 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 			else
 			{
 				static float s_PrevAmount = 0.0f;
-				float AmountSeek = clamp((Ui()->MouseX() - SeekBar.x - Rounding) / (SeekBar.w - 2 * Rounding), 0.0f, 1.0f);
+				float AmountSeek = std::clamp((Ui()->MouseX() - SeekBar.x - Rounding) / (SeekBar.w - 2 * Rounding), 0.0f, 1.0f);
 
 				if(Input()->ShiftIsPressed())
 				{
@@ -464,7 +464,7 @@ void CMenus::RenderDemoPlayer(CUIRect MainView)
 
 		if(Ui()->HotItem() == &s_SeekBarId)
 		{
-			const int HoveredTick = (int)(clamp((Ui()->MouseX() - SeekBar.x - Rounding) / (SeekBar.w - 2 * Rounding), 0.0f, 1.0f) * TotalTicks);
+			const int HoveredTick = (int)(std::clamp((Ui()->MouseX() - SeekBar.x - Rounding) / (SeekBar.w - 2 * Rounding), 0.0f, 1.0f) * TotalTicks);
 			static char s_aHoveredTime[32];
 			str_time((int64_t)HoveredTick / Client()->GameTickSpeed() * 100, TIME_HOURS, s_aHoveredTime, sizeof(s_aHoveredTime));
 			GameClient()->m_Tooltips.DoToolTip(&s_SeekBarId, &SeekBar, s_aHoveredTime);
